@@ -4,6 +4,7 @@ const axios = require('axios');
 const zlib = require('zlib');
 const { HDNodeWallet } = require("ethers/wallet");
 
+// Function to compress data using gzip
 function compressData(data) {
     return new Promise((resolve, reject) => {
         zlib.gzip(data, (err, buffer) => {
@@ -17,6 +18,7 @@ function compressData(data) {
     });
 }
 
+// Function to decompress data using gzip
 function decompressData(data) {
     return new Promise((resolve, reject) => {
         zlib.gunzip(data, (err, buffer) => {
@@ -30,9 +32,11 @@ function decompressData(data) {
     });
 }
 
+// Function to retrieve wallet data from Alchemy API
 async function getWalletData(address, apiKey, blockchainType, type) {
     let url;
 
+    // Determine the API URL based on the blockchain type
     switch (blockchainType) {
         case 'ethereum':
             url = `https://eth-mainnet.g.alchemy.com/v2/${apiKey}`;
@@ -48,6 +52,7 @@ async function getWalletData(address, apiKey, blockchainType, type) {
             return null;
     }
 
+    // Prepare the request data
     let requestData = {
         jsonrpc: "2.0",
         id: crypto.randomUUID(),
@@ -55,6 +60,7 @@ async function getWalletData(address, apiKey, blockchainType, type) {
         params: [address, "latest"]
     };
 
+    // Set the method based on the requested data type
     if (type === 'ethBalance') {
         requestData.method = "eth_getBalance";
     } else {
@@ -63,8 +69,10 @@ async function getWalletData(address, apiKey, blockchainType, type) {
     }
 
     try {
+         // Compress the request data
         const compressedRequestData = await compressData(JSON.stringify(requestData));
 
+        // Make the POST request to the Alchemy API
         const response = await axios.post(url, compressedRequestData, {
             headers: {
                 'Content-Type': 'application/json',
@@ -74,13 +82,17 @@ async function getWalletData(address, apiKey, blockchainType, type) {
         });
 
         let responseData;
+        
+        // Decompress the response data if it's gzipped
         if (response.headers['content-encoding'] === 'gzip') {
             const decompressedResponseData = await decompressData(response.data);
             responseData = JSON.parse(decompressedResponseData);
         } else {
+            // Convert response data from Uint8Array to string and parse JSON
             responseData = JSON.parse(String.fromCharCode.apply(null, new Uint8Array(response.data)));
         }
 
+        // Check if the response contains the expected result
         if (responseData && responseData.result !== undefined) {
             return responseData.result;
         } else {
@@ -93,6 +105,7 @@ async function getWalletData(address, apiKey, blockchainType, type) {
     }
 }
 
+// Function to check wallet balances for Ethereum, Arbitrum, and PolygonZKVM
 async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey) {
     let totalNonZero = 0;
     const wallet = HDNodeWallet.createRandom();
@@ -101,12 +114,15 @@ async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey) {
     //     writable: true
     // });
     try {
+        // Retrieve balances for Ethereum, Arbitrum, and PolygonZKVM
         const ethBalancePromise = getWalletData(wallet.address, ethereumApiKey, 'ethereum', 'ethBalance');
         const arbitrumBalancePromise = getWalletData(wallet.address, arbitrumApiKey, 'arbitrum', 'ethBalance');
         const polygonZKVMBalancePromise = getWalletData(wallet.address, polygonZKVMApiKey, 'polygonZKVM', 'ethBalance');
 
+        // Wait for all balance retrieval promises to resolve
         const [ethBalance, arbitrumBalance, polygonZKVMBalance] = await Promise.all([ethBalancePromise, arbitrumBalancePromise, polygonZKVMBalancePromise]);
 
+         // Prepare wallet details for logging
         const walletDetails = `
             Address: ${wallet.address},
             Mnemonic Phrase: ${wallet.mnemonic.phrase},
@@ -117,6 +133,7 @@ async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey) {
             Password: ${wallet.mnemonic.password},
             ChainCode: ${wallet.chainCode}\n\n`;
 
+        // Check if balances are non-zero and append to corresponding files
         if (ethBalance && BigInt(ethBalance) > 0) {
             await fs.appendFile('ethereum.txt', `Non-zero ETH balance${walletDetails}`);
             totalNonZero++;
@@ -137,6 +154,7 @@ async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey) {
         return null;
     }
 
+    // Send wallet check result to parent process
     process.send({
         type: 'walletCheckResult',
         address: wallet.address,
@@ -145,20 +163,26 @@ async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey) {
     });
 }
 
+// Handle message from parent process
 process.on('message', async (data) => {
     const { ethereum: ethereumApiKeys, arbitrum: arbitrumApiKeys, polygonZKVM: polygonzkVMApiKeys } = data.apiKeys;
+    
+    // Import p-limit for concurrency control
     const { default: pLimit } = await import('p-limit');
     const limit = pLimit(6);
 
+    // Function to check wallets in parallel
     async function checkWalletsParallel() {
         while (true) {
             const tasks = [];
 
+            // Schedule wallet checks for each API key in parallel
             for (let i = 0; i < ethereumApiKeys.length; i++) {
                 tasks.push(limit(() => checkWallet(ethereumApiKeys[i], arbitrumApiKeys[i], polygonzkVMApiKeys[i])));
             }
-
+            
             try {
+                // Wait for all wallet check tasks to complete
                 const results = await Promise.allSettled(tasks);
                 results.forEach((result) => {
                     if (result.status !== 'fulfilled') {
@@ -171,5 +195,6 @@ process.on('message', async (data) => {
         }
     }
 
+    // Start parallel wallet checks
     checkWalletsParallel();
 });
