@@ -17,32 +17,35 @@ const ethereumApiKeys = loadApiKeysFromEnvFile('ethereum.env');
 const arbitrumApiKeys = loadApiKeysFromEnvFile('arbitrum.env');
 const polygonzkVMApiKeys = loadApiKeysFromEnvFile('polygon.env');
 
+// Initialize counters and data structures for tracking progress and results
 let totalChecked = 0;
 let totalNonZero = 0;
 let lastCheckedCount = 0;
 let lastFiveAddresses = [];
 
 // Number of parallel worker processes.
-const numWorkers = 20;
+const numWorkers = 20; // Total number of child processes to spawn
 // Number of keys per blockchain type each worker will handle.
-const keysPerTypePerWorker = 3;
+const keysPerTypePerWorker = 3; // Number of API keys assigned to each worker per blockchain network
 
 // Create and manage worker processes for wallet checks.
 for (let i = 0; i < numWorkers; i++) {
     setTimeout(() => {
         const worker = fork(path.join(__dirname, 'worker.js'));
-
+        
+        // Assign a subset of API keys to each worker
         const startIndex = i * keysPerTypePerWorker;
         const endIndex = startIndex + keysPerTypePerWorker;
-
         const workerApiKeys = {
             ethereum: ethereumApiKeys.slice(startIndex, endIndex),
             arbitrum: arbitrumApiKeys.slice(startIndex, endIndex),
             polygonZKVM: polygonzkVMApiKeys.slice(startIndex, endIndex),
         };
 
+        // Send API keys to the worker
         worker.send({ apiKeys: workerApiKeys });
 
+        // Handle messages from the worker
         worker.on('message', (message) => {
             if (message.type === 'walletCheckResult') {
                 totalChecked += Number(message.totalChecked);
@@ -56,12 +59,14 @@ for (let i = 0; i < numWorkers; i++) {
             }
         });
 
+        // Log when a worker exits
         worker.on('exit', (code) => {
             console.log(`Worker exited with code ${code}`);
         });
     }, i * 100);
 }
 
+// Periodically update and display statistics in the console
 (async () => {
     const logUpdate = (await import('log-update')).default;
     console.clear();
@@ -87,5 +92,6 @@ for (let i = 0; i < numWorkers; i++) {
         lastCheckedCount = totalChecked;
     }
 
+    // Update the display every second
     setInterval(displayStats, 1000);
 })();
