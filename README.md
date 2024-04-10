@@ -15,6 +15,8 @@
      ```
 
 2. **Dependencies Installation:**
+   - Open the terminal.
+   - Navigate to the directory containing the script.
    - Install dependencies by running the command: 
      ```
      npm install
@@ -24,10 +26,7 @@
    - Ensure `index.js` is the main script file. You can configure the number of workers and the number of API keys each worker receives in the `index.js` file, lines 27 and 29.
 
 4. **Execution:**
-   - Open the terminal.
-   - Navigate to the directory containing the script.
-   - Install dependencies.
-   - Run the command:
+   - Run the command to start:
      ```
      node index.js
      ```
