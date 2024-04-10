@@ -3,6 +3,7 @@ const { fork } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+// Loads API keys from a given .env file filtering by a specific prefix (ALCHEMY_API_KEY_).
 function loadApiKeysFromEnvFile(envFileName) {
     const envPath = path.join(__dirname, envFileName);
     const envContent = fs.readFileSync(envPath, 'utf8');
@@ -11,6 +12,7 @@ function loadApiKeysFromEnvFile(envFileName) {
     }).map(line => line.split('=')[1].trim());
 }
 
+// Load API keys for Ethereum, Arbitrum, and Polygon from their respective .env files.
 const ethereumApiKeys = loadApiKeysFromEnvFile('ethereum.env');
 const arbitrumApiKeys = loadApiKeysFromEnvFile('arbitrum.env');
 const polygonzkVMApiKeys = loadApiKeysFromEnvFile('polygon.env');
@@ -20,9 +22,12 @@ let totalNonZero = 0;
 let lastCheckedCount = 0;
 let lastFiveAddresses = [];
 
+// Number of parallel worker processes.
 const numWorkers = 20;
+// Number of keys per blockchain type each worker will handle.
 const keysPerTypePerWorker = 3;
 
+// Create and manage worker processes for wallet checks.
 for (let i = 0; i < numWorkers; i++) {
     setTimeout(() => {
         const worker = fork(path.join(__dirname, 'worker.js'));
@@ -61,6 +66,7 @@ for (let i = 0; i < numWorkers; i++) {
     const logUpdate = (await import('log-update')).default;
     console.clear();
 
+     // Function to display live stats of the ongoing wallet checks.
     function displayStats() {
         const terminalWidth = process.stdout.columns;
         const lines = [
