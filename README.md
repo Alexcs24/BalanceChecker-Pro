@@ -4,11 +4,11 @@
 ---
 
 1. **Environment Setup:**
-   - Create three environment files in the ./API_Keys_Folder/ directory:
-     - `./API_Keys_Folder/ethereum.env`
-     - `./API_Keys_Folder/arbitrum.env`
-     - `./API_Keys_Folder/Optimism.env`
-     - `./API_Keys_Folder/polygonZKEVM.env`
+   - Create three environment files in the ./API_Keys/ directory:
+     - `./API_Keys/ethereum.env`
+     - `./API_Keys/arbitrum.env`
+     - `./API_Keys/optimism.env`
+     - `./API_Keys/polygonZKEVM.env`
    - Each file should contain API keys for the respective blockchains, registered on the Alchemy platform. For example:
      ```
      ALCHEMY_API_KEY_1=API KEY
@@ -34,10 +34,10 @@
 
 5. **Observing Results:**
    - The results will be recorded in separate files based on the blockchain:
-     - `./Win/Ethereum.txt`
-     - `./Win/Arbitrum.txt`
-     - `./Win/Optimism.txt`
-     - `./Win/PolygonZKVM.txt`
+     - `./Win/ethereum.txt`
+     - `./Win/arbitrum.txt`
+     - `./Win/optimism.txt`
+     - `./Win/polygonZKVM.txt`
 
 - Ensure the environment files contain the appropriate API keys, and the number of keys in each file is proportional. This script efficiently checks wallet balances across multiple blockchains.
 
