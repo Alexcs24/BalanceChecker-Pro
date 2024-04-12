@@ -1,13 +1,14 @@
 ## Setting up Wallet Balance Check
-- This Node.js script efficiently checks wallet balances on Ethereum, Arbitrum, and PolygonZKVM blockchains using the Alchemy API. It utilizes data compression for data processing and effectively manages parallel API requests. Non-zero balances are logged in separate files.
+- This Node.js script efficiently checks wallet balances on Ethereum, Arbitrum, Optimism, and PolygonZKVM blockchains using the Alchemy API. It utilizes data compression for data processing and effectively manages parallel API requests. Non-zero balances are logged in separate files.
 
 ---
 
 1. **Environment Setup:**
-   - Create three environment files in the root directory:
-     - `ethereum.env`
-     - `arbitrum.env`
-     - `polygon.env`
+   - Create three environment files in the ./API_Keys_Folder/ directory:
+     - `./API_Keys_Folder/ethereum.env`
+     - `./API_Keys_Folder/arbitrum.env`
+     - `./API_Keys_Folder/Optimism.env`
+     - `./API_Keys_Folder/polygonZKEVM.env`
    - Each file should contain API keys for the respective blockchains, registered on the Alchemy platform. For example:
      ```
      ALCHEMY_API_KEY_1=API KEY
@@ -23,7 +24,7 @@
      ```
 
 3. **Main File:**
-   - Ensure `index.js` is the main script file. You can configure the number of workers and the number of API keys each worker receives in the `index.js` file, lines 27 and 29.
+   - Ensure `index.js` is the main script file. You can configure the number of workers and the number of API keys each worker receives in the `index.js` file.
 
 4. **Execution:**
    - Run the command to start:
@@ -33,16 +34,17 @@
 
 5. **Observing Results:**
    - The results will be recorded in separate files based on the blockchain:
-     - `ethereum.txt`
-     - `arbitrum.txt`
-     - `polygonZKVM.txt`
+     - `./Win/Ethereum.txt`
+     - `./Win/Arbitrum.txt`
+     - `./Win/Optimism.txt`
+     - `./Win/PolygonZKVM.txt`
 
 - Ensure the environment files contain the appropriate API keys, and the number of keys in each file is proportional. This script efficiently checks wallet balances across multiple blockchains.
 
 ---
 
 **Features:**
-- Supports multiple blockchains (Ethereum, Arbitrum, PolygonZKVM)
+- Supports multiple blockchains (Ethereum, Arbitrum, Optimism, PolygonZKVM)
 - Uses Alchemy API to search for balances
 - Efficiently handles concurrent API requests
 - Data compression for improved performance
@@ -56,7 +58,5 @@
 **Additional Notes:**
 - You can add or remove blockchains for checking as desired. The balance check depends only on your internet speed.
 - Be sure to configure the number of workers according to your processor. Choose an optimal workload and number of workers.
-- By uncommenting lines 112-115 in the `worker.js` file, you can specify any wallet address for testing.
+- By uncommenting lines 11-7120 in the `worker.js` file, you can specify any wallet address for testing.
 - This code is for informational purposes only. Never use others' wallets with malicious intent. Remember to practice ethics.
-- The worker.js file utilizes p-limit for concurrency control, ensuring isolated operation within each worker. It's crucial to configure p-limit according to the isolated workload calculation for each worker.
-- You can adjust the concurrency limit of p-limit based on the available resources and the desired workload distribution among workers.

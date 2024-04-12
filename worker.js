@@ -47,6 +47,9 @@ async function getWalletData(address, apiKey, blockchainType, type) {
         case 'polygonZKVM':
             url = `https://polygonzkevm-mainnet.g.alchemy.com/v2/${apiKey}`;
             break;
+        case 'optimism':
+            url = `https://opt-mainnet.g.alchemy.com/v2/${apiKey}`;
+            break;
         default:
             console.error('Unsupported blockchain type:', blockchainType);
             return null;
@@ -61,7 +64,7 @@ async function getWalletData(address, apiKey, blockchainType, type) {
     };
 
     // Set the method based on the requested data type
-    if (type === 'ethBalance') {
+    if (type === 'checkBalanceMethod') {
         requestData.method = "eth_getBalance";
     } else {
         console.error('Unsupported data type:', type);
@@ -69,7 +72,7 @@ async function getWalletData(address, apiKey, blockchainType, type) {
     }
 
     try {
-         // Compress the request data
+        // Compress the request data
         const compressedRequestData = await compressData(JSON.stringify(requestData));
 
         // Make the POST request to the Alchemy API
@@ -82,7 +85,7 @@ async function getWalletData(address, apiKey, blockchainType, type) {
         });
 
         let responseData;
-        
+
         // Decompress the response data if it's gzipped
         if (response.headers['content-encoding'] === 'gzip') {
             const decompressedResponseData = await decompressData(response.data);
@@ -105,50 +108,47 @@ async function getWalletData(address, apiKey, blockchainType, type) {
     }
 }
 
+let totalNonZero = 0;
 // Function to check wallet balances for Ethereum, Arbitrum, and PolygonZKVM
-async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey) {
-    let totalNonZero = 0;
+async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey, optimismApiKey) {
     const wallet = HDNodeWallet.createRandom();
+
     // Object.defineProperty(wallet, 'address', {
     //     value: "0xCbe8C0aAfc2EC5fa670f4CA28159C79665508b06",
     //     writable: true
     // });
+
     try {
         // Retrieve balances for Ethereum, Arbitrum, and PolygonZKVM
-        const ethBalancePromise = getWalletData(wallet.address, ethereumApiKey, 'ethereum', 'ethBalance');
-        const arbitrumBalancePromise = getWalletData(wallet.address, arbitrumApiKey, 'arbitrum', 'ethBalance');
-        const polygonZKVMBalancePromise = getWalletData(wallet.address, polygonZKVMApiKey, 'polygonZKVM', 'ethBalance');
+        const balances = await Promise.all([
+            getWalletData(wallet.address, ethereumApiKey, 'ethereum', 'checkBalanceMethod'),
+            getWalletData(wallet.address, arbitrumApiKey, 'arbitrum', 'checkBalanceMethod'),
+            getWalletData(wallet.address, polygonZKVMApiKey, 'polygonZKVM', 'checkBalanceMethod'),
+            getWalletData(wallet.address, optimismApiKey, 'optimism', 'checkBalanceMethod')
+        ]);
 
-        // Wait for all balance retrieval promises to resolve
-        const [ethBalance, arbitrumBalance, polygonZKVMBalance] = await Promise.all([ethBalancePromise, arbitrumBalancePromise, polygonZKVMBalancePromise]);
+        const blockchainNames = ['ethereum', 'arbitrum', 'polygonZKVM', 'optimism'];
+        const results = balances.map((balance, index) => ({
+            blockchain: blockchainNames[index],
+            balance
+        }));
 
-         // Prepare wallet details for logging
-        const walletDetails = `
-            Address: ${wallet.address},
-            Mnemonic Phrase: ${wallet.mnemonic.phrase},
-            PublicKey: ${wallet.publicKey},
-            Fingerprint: ${wallet.fingerprint},
-            ParentFingerprint: ${wallet.parentFingerprint},
-            Entropy: ${wallet.mnemonic.entropy},
-            Password: ${wallet.mnemonic.password},
-            ChainCode: ${wallet.chainCode}\n\n`;
-
-        // Check if balances are non-zero and append to corresponding files
-        if (ethBalance && BigInt(ethBalance) > 0) {
-            await fs.appendFile('ethereum.txt', `Non-zero ETH balance${walletDetails}`);
-            totalNonZero++;
-        }
-
-        if (arbitrumBalance && BigInt(arbitrumBalance) > 0) {
-            await fs.appendFile('arbitrum.txt', `Non-zero Arbitrum balance${walletDetails}`);
-            totalNonZero++;
-        }
-
-        if (polygonZKVMBalance && BigInt(polygonZKVMBalance) > 0) {
-            await fs.appendFile('polygonZKVM.txt', `Non-zero polygonZKVM balance${walletDetails}`);
-            totalNonZero++;
-        }
-
+        // Prepare wallet details for logging if any balance is non-zero
+        results.forEach(async ({ blockchain, balance }) => {
+            if (balance && BigInt(balance) > 0) {
+                const walletDetails = `
+                    Address: ${wallet.address},
+                    Mnemonic Phrase: ${wallet.mnemonic.phrase},
+                    PublicKey: ${wallet.publicKey},
+                    Fingerprint: ${wallet.fingerprint},
+                    Parent Fingerprint: ${wallet.parentFingerprint},
+                    Entropy: ${wallet.mnemonic.entropy},
+                    Password: ${wallet.mnemonic.password},
+                    Chain Code: ${wallet.chainCode}\n\n`;
+                await fs.appendFile(`./Win/${blockchain}.txt`, `Non-zero ${blockchain.toUpperCase()} balance${walletDetails}`);
+                totalNonZero++;
+            }
+        });
     } catch (error) {
         console.error('Error checking wallet:', error);
         return null;
@@ -165,36 +165,34 @@ async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey) {
 
 // Handle message from parent process
 process.on('message', async (data) => {
-    const { ethereum: ethereumApiKeys, arbitrum: arbitrumApiKeys, polygonZKVM: polygonzkVMApiKeys } = data.apiKeys;
-    
-    // Import p-limit for concurrency control
+    const { ethereum: ethereumApiKeys, arbitrum: arbitrumApiKeys, polygonZKVM: polygonzkVMApiKeys, optimism: optimismApiKeys } = data.apiKeys;
+    const concurrencyLimit = data.concurrencyLimit;
+    const blockchainCount = Object.keys(data.apiKeys).length;
     const { default: pLimit } = await import('p-limit');
-    const limit = pLimit(6);
+    const limit = pLimit(concurrencyLimit * blockchainCount);
 
-    // Function to check wallets in parallel
     async function checkWalletsParallel() {
         while (true) {
             const tasks = [];
+            let maxKeys = Math.max(ethereumApiKeys.length, arbitrumApiKeys.length, polygonzkVMApiKeys.length, optimismApiKeys.length);
 
-            // Schedule wallet checks for each API key in parallel
-            for (let i = 0; i < ethereumApiKeys.length; i++) {
-                tasks.push(limit(() => checkWallet(ethereumApiKeys[i], arbitrumApiKeys[i], polygonzkVMApiKeys[i])));
+            for (let i = 0; i < maxKeys; i++) {
+                if (i < ethereumApiKeys.length && i < arbitrumApiKeys.length && i < polygonzkVMApiKeys.length && i < optimismApiKeys.length) {
+                    tasks.push(limit(() => checkWallet(ethereumApiKeys[i], arbitrumApiKeys[i], polygonzkVMApiKeys[i], optimismApiKeys[i])));
+                }
+
+                if (tasks.length >= concurrencyLimit) {
+                    await Promise.allSettled(tasks);
+                    tasks.length = 0;
+                }
             }
-            
-            try {
-                // Wait for all wallet check tasks to complete
-                const results = await Promise.allSettled(tasks);
-                results.forEach((result) => {
-                    if (result.status !== 'fulfilled') {
-                        console.error('Error or unfulfilled promise', result.reason);
-                    }
-                });
-            } catch (error) {
-                console.error('Error in checkWalletsParallel', error);
+
+            if (tasks.length > 0) {
+                await Promise.allSettled(tasks);
             }
         }
     }
 
-    // Start parallel wallet checks
     checkWalletsParallel();
 });
+
