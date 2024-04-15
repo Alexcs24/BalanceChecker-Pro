@@ -36,7 +36,7 @@ const apiKeys = {
     ethereum: loadApiKeysFromEnvFile('./API_Keys/ethereum.env'),
     arbitrum: loadApiKeysFromEnvFile('./API_Keys/arbitrum.env'),
     optimism: loadApiKeysFromEnvFile('./API_Keys/optimism.env'),
-    polygonzkVM: loadApiKeysFromEnvFile('./API_Keys/polygonzkEVM.env'),
+    polygonzkVM: loadApiKeysFromEnvFile('./API_Keys/polygonZKEVM.env'),
 };
 
 // Loads API keys from a given .env file filtering by a specific prefix (ALCHEMY_API_KEY_).
