@@ -1,62 +1,76 @@
-## Setting up Wallet Balance Check
-- This Node.js script efficiently checks wallet balances on Ethereum, Arbitrum, Optimism, and PolygonZKVM blockchains using the Alchemy API. It utilizes data compression for data processing and effectively manages parallel API requests. Non-zero balances are logged in separate files.
+# Blockchain Wallet Checker
 
----
+This project is designed to check balances of a specific address across multiple blockchains using parallel processing with worker threads.
 
-1. **Environment Setup:**
-   - Create three environment files in the ./API_Keys/ directory:
-     - `./API_Keys/ethereum.env`
-     - `./API_Keys/arbitrum.env`
-     - `./API_Keys/optimism.env`
-     - `./API_Keys/polygonZKEVM.env`
-   - Each file should contain API keys for the respective blockchains, registered on the Alchemy platform. For example:
-     ```
-     ALCHEMY_API_KEY_1=API KEY
-     ALCHEMY_API_KEY_2=API KEY
-     ```
+## Features
 
-2. **Dependencies Installation:**
-   - Open the terminal.
-   - Navigate to the directory containing the script.
-   - Install dependencies by running the command: 
-     ```
-     npm install
-     ```
+- Supports multiple blockchains (Ethereum, Arbitrum, etc.)
+- Uses worker threads for concurrent API requests
+- Configurable retry logic and concurrency limits
+- Logs detailed error information
+- Saves addresses with non-zero balances to a file
 
-3. **Main File:**
-   - Ensure `index.js` is the main script file. You can configure the number of workers and the number of API keys each worker receives in the `index.js` file.
+## Prerequisites
 
-4. **Execution:**
-   - Run the command to start:
-     ```
-     node index.js
-     ```
+- Node.js (version 14.x or later)
+- NPM (Node Package Manager)
 
-5. **Observing Results:**
-   - The results will be recorded in separate files based on the blockchain:
-     - `./Win/ethereum.txt`
-     - `./Win/arbitrum.txt`
-     - `./Win/optimism.txt`
-     - `./Win/polygonZKVM.txt`
+## Installation
 
-- Ensure the environment files contain the appropriate API keys, and the number of keys in each file is proportional. This script efficiently checks wallet balances across multiple blockchains.
+1. Clone the repository:
 
----
+    ```bash
+    git clone https://github.com/yourusername/blockchain-wallet-checker.git
+    cd blockchain-wallet-checker
+    ```
 
-**Features:**
-- Supports multiple blockchains (Ethereum, Arbitrum, Optimism, PolygonZKVM)
-- Uses Alchemy API to search for balances
-- Efficiently handles concurrent API requests
-- Data compression for improved performance
-- Records non-zero balances in separate files
+2. Install the dependencies:
 
-**Usage:**
-1. Configure environment variables for the API keys.
-2. Run the script to check wallet balances.
-3. View the results in the respective output files.
+    ```bash
+    npm install
+    ```
 
-**Additional Notes:**
-- You can add or remove blockchains for checking as desired. The balance check depends only on your internet speed.
-- Be sure to configure the number of workers according to your processor. Choose an optimal workload and number of workers.
-- By uncommenting lines 11-7120 in the `worker.js` file, you can specify any wallet address for testing.
-- This code is for informational purposes only. Never use others' wallets with malicious intent. Remember to practice ethics.
+3. Set up API keys:
+
+    - Create an `API_Keys` directory in the root of the project.
+    - Inside `API_Keys`, create separate `.env` files for each blockchain (e.g., `ethereum.env`, `arbitrum.env`, etc.).
+    - Add your Alchemy API keys to these files. Each key should be in the format: `ALCHEMY_API_KEY_X=your_api_key_here`.
+
+## Configuration
+
+The configuration settings are stored in `config.js`. You can adjust the settings as needed:
+
+```javascript
+module.exports = {
+    // Number of workers for parallel processing
+    numWorkers: 40,
+
+    // Address to check. If not provided, use an empty string
+    addressToCheck: process.env.ADDRESS_TO_CHECK || '',
+
+    // API URLs for various blockchains. You can comment out or remove/add lines as needed.
+    blockchains: {
+        ethereum: 'https://eth-mainnet.g.alchemy.com/v2/',
+        arbitrum: 'https://arb-mainnet.g.alchemy.com/v2/',
+        optimism: 'https://opt-mainnet.g.alchemy.com/v2/',
+        polygonZKEVM: 'https://polygonzkevm-mainnet.g.alchemy.com/v2/',
+        base: 'https://base-mainnet.g.alchemy.com/v2/',
+        optimism2: 'https://opt-mainnet.g.alchemy.com/v2/'
+        // Add or remove blockchain URLs as needed
+    },
+
+    // Maximum number of retry attempts for API requests
+    maxRetries: 3, // Reduced max retries to avoid long delays
+
+    // Delay between retries in milliseconds
+    retryDelay: 5000, // Retry delay in milliseconds
+
+    // Delay for retries after network errors in milliseconds
+    networkErrorRetryDelay: 15000, // Retry delay for network errors
+
+    // Maximum number of concurrent API requests
+    concurrencyLimit: 8,
+
+    // Minimum balance threshold for reporting
+    minBalance: 0.01 // Minimum balance threshold
+};

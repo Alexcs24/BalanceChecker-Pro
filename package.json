@@ -1,5 +1,5 @@
 {
-    "name": "your-app",
+    "name": "balance-checker-pro",
     "version": "1.0.0",
     "description": "Node.js application for Ethereum wallet generation and checking",
     "main": "src/index.js",
@@ -8,21 +8,27 @@
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "dependencies": {
-        "axios": "^1.6.5",
-        "axios-retry": "^4.0.0",
+        "axios": "^1.6.8",
+        "axios-proxy-fix": "^0.16.3",
+        "axios-retry": "^4.3.0",
+        "bignumber.js": "^9.1.2",
         "bip39": "^3.1.0",
+        "boxen": "^7.1.1",
         "chalk": "^5.3.0",
         "child_process": "^1.0.2",
+        "cli-boxes": "^3.0.0",
         "dotenv": "^8.2.0",
-        "ethers": "^6.10.0",
+        "ethers": "^6.12.0",
         "fs": "^0.0.1-security",
         "http2": "^3.3.7",
         "http2-wrapper": "^2.2.1",
+        "https-proxy-agent": "^7.0.4",
         "log-update": "^6.0.0",
         "node-fetch": "^3.3.2",
         "os": "^0.1.2",
         "p-limit": "^5.0.0",
         "path": "^0.12.7",
+        "proxy-agent": "^6.4.0",
         "ws": "^7.5.9"
     }
 }

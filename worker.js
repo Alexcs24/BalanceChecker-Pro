@@ -1,198 +1,157 @@
+const { parentPort } = require('worker_threads');
 const crypto = require('crypto');
 const fs = require('fs').promises;
+const https = require('https');
 const axios = require('axios');
+const httpsAgent = new https.Agent({ keepAlive: true });
 const zlib = require('zlib');
 const { HDNodeWallet } = require("ethers/wallet");
+const { promisify } = require('util');
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
+const BigNumber = require('bignumber.js');
 
-// Function to compress data using gzip
-function compressData(data) {
-    return new Promise((resolve, reject) => {
-        zlib.gzip(data, (err, buffer) => {
-            if (err) {
-                reject(err);
-                return null;
-            } else {
-                resolve(buffer);
-            }
-        });
-    });
-}
+let pLimit;
 
-// Function to decompress data using gzip
-function decompressData(data) {
-    return new Promise((resolve, reject) => {
-        zlib.gunzip(data, (err, buffer) => {
-            if (err) {
-                reject(err);
-                return null;
-            } else {
-                resolve(buffer.toString());
-            }
-        });
-    });
-}
+(async () => {
+    pLimit = (await import('p-limit')).default;
 
-// Function to retrieve wallet data from Alchemy API
-async function getWalletData(address, apiKey, blockchainType, type) {
-    let url;
-
-    // Determine the API URL based on the blockchain type
-    switch (blockchainType) {
-        case 'ethereum':
-            url = `https://eth-mainnet.g.alchemy.com/v2/${apiKey}`;
-            break;
-        case 'arbitrum':
-            url = `https://arb-mainnet.g.alchemy.com/v2/${apiKey}`;
-            break;
-        case 'polygonZKVM':
-            url = `https://polygonzkevm-mainnet.g.alchemy.com/v2/${apiKey}`;
-            break;
-        case 'optimism':
-            url = `https://opt-mainnet.g.alchemy.com/v2/${apiKey}`;
-            break;
-        default:
-            console.error('Unsupported blockchain type:', blockchainType);
-            return null;
-    }
-
-    // Prepare the request data
-    let requestData = {
-        jsonrpc: "2.0",
-        id: crypto.randomUUID(),
-        method: "",
-        params: [address, "latest"]
-    };
-
-    // Set the method based on the requested data type
-    if (type === 'checkBalanceMethod') {
-        requestData.method = "eth_getBalance";
-    } else {
-        console.error('Unsupported data type:', type);
-        return null;
-    }
-
-    try {
-        // Compress the request data
-        const compressedRequestData = await compressData(JSON.stringify(requestData));
-
-        // Make the POST request to the Alchemy API
-        const response = await axios.post(url, compressedRequestData, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Encoding': 'gzip'
-            },
-            responseType: 'arraybuffer'
-        });
-
-        let responseData;
-
-        // Decompress the response data if it's gzipped
-        if (response.headers['content-encoding'] === 'gzip') {
-            const decompressedResponseData = await decompressData(response.data);
-            responseData = JSON.parse(decompressedResponseData);
-        } else {
-            // Convert response data from Uint8Array to string and parse JSON
-            responseData = JSON.parse(String.fromCharCode.apply(null, new Uint8Array(response.data)));
+    async function compressData(data) {
+        try {
+            return await gzip(data);
+        } catch (err) {
+            await logDetailedError(err);
+            throw err;
         }
-
-        // Check if the response contains the expected result
-        if (responseData && responseData.result !== undefined) {
-            return responseData.result;
-        } else {
-            console.error('No result in response for', blockchainType, 'with address', address);
-            return null;
-        }
-    } catch (error) {
-        console.error(`Error in getWalletData for ${blockchainType}:`, error);
-        return null;
     }
-}
 
-let totalNonZero = 0;
-// Function to check wallet balances for Ethereum, Arbitrum, and PolygonZKVM
-async function checkWallet(ethereumApiKey, arbitrumApiKey, polygonZKVMApiKey, optimismApiKey) {
-    const wallet = HDNodeWallet.createRandom();
+    async function decompressData(data) {
+        try {
+            return (await gunzip(data)).toString();
+        } catch (err) {
+            await logDetailedError(err);
+            throw err;
+        }
+    }
 
-    // Object.defineProperty(wallet, 'address', {
-    //     value: "0xCbe8C0aAfc2EC5fa670f4CA28159C79665508b06",
-    //     writable: true
-    // });
+    async function processResponse(response) {
+        try {
+            const data = response.headers['content-encoding']?.includes('gzip')
+                ? await decompressData(response.data)
+                : String.fromCharCode.apply(null, new Uint8Array(response.data));
+            return JSON.parse(data)?.result ?? null;
+        } catch (error) {
+            await logDetailedError(error);
+            throw error;
+        }
+    }
 
-    try {
-        // Retrieve balances for Ethereum, Arbitrum, and PolygonZKVM
-        const balances = await Promise.all([
-            getWalletData(wallet.address, ethereumApiKey, 'ethereum', 'checkBalanceMethod'),
-            getWalletData(wallet.address, arbitrumApiKey, 'arbitrum', 'checkBalanceMethod'),
-            getWalletData(wallet.address, polygonZKVMApiKey, 'polygonZKVM', 'checkBalanceMethod'),
-            getWalletData(wallet.address, optimismApiKey, 'optimism', 'checkBalanceMethod')
-        ]);
+    async function getWalletData(address, apiKey, blockchainUrl, maxRetries, retryDelay, networkErrorRetryDelay) {
+        const url = `${blockchainUrl}${apiKey}`;
+        const requestData = {
+            jsonrpc: "2.0",
+            id: crypto.randomUUID(),
+            method: "eth_getBalance",
+            params: [address, "latest"]
+        };
+        return retryRequest(url, requestData, maxRetries, retryDelay, networkErrorRetryDelay);
+    }
 
-        const blockchainNames = ['ethereum', 'arbitrum', 'polygonZKVM', 'optimism'];
-        const results = balances.map((balance, index) => ({
-            blockchain: blockchainNames[index],
-            balance
-        }));
+    async function retryRequest(url, requestData, maxRetries, retryDelay, networkErrorRetryDelay, attempt = 1) {
+        try {
+            const compressedData = await compressData(JSON.stringify(requestData));
+            const response = await axios.post(url, compressedData, {
+                headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+                httpsAgent,
+                responseType: 'arraybuffer'
+            });
+            return await processResponse(response);
+        } catch (error) {
+            if (attempt >= maxRetries) {
+                await logDetailedError(error);
+                return null;
+            }
 
-        // Prepare wallet details for logging if any balance is non-zero
-        results.forEach(async ({ blockchain, balance }) => {
-            if (balance && BigInt(balance) > 0) {
-                const walletDetails = `
-                    Address: ${wallet.address},
-                    Mnemonic Phrase: ${wallet.mnemonic.phrase},
-                    PublicKey: ${wallet.publicKey},
-                    Fingerprint: ${wallet.fingerprint},
-                    Parent Fingerprint: ${wallet.parentFingerprint},
-                    Entropy: ${wallet.mnemonic.entropy},
-                    Password: ${wallet.mnemonic.password},
-                    Chain Code: ${wallet.chainCode}\n\n`;
-                await fs.appendFile(`./Win/${blockchain}.txt`, `Non-zero ${blockchain.toUpperCase()} balance${walletDetails}`);
-                totalNonZero++;
+            const delay = (error.code === 'ETIMEDOUT' || error.code === 'ENETUNREACH') ? networkErrorRetryDelay : retryDelay;
+            await new Promise(resolve => setTimeout(resolve, delay));
+
+            parentPort.postMessage({ type: 'error' });
+            return retryRequest(url, requestData, maxRetries, retryDelay, networkErrorRetryDelay, attempt + 1);
+        }
+    }
+
+    async function logDetailedError(error) {
+        const logMessage = `Detailed error information: ${JSON.stringify(error, null, 2)}`;
+        await fs.appendFile('error_log.txt', logMessage + '\n');
+    }
+
+    async function checkWallet(address, blockchainParams, maxRetries, retryDelay, networkErrorRetryDelay, concurrencyLimit, minBalance) {
+        const wallet = HDNodeWallet.createRandom();
+        const addressToCheck = address || wallet.address;
+        const limit = pLimit(concurrencyLimit);
+
+        try {
+            const results = await Promise.all(
+                blockchainParams.map(param => limit(() => getWalletBalance(addressToCheck, param, maxRetries, retryDelay, networkErrorRetryDelay)))
+            );
+            const winFileData = await processResultsAndPrepareFiles(results, addressToCheck, minBalance, address ? null : wallet.mnemonic.phrase);
+            if (winFileData) {
+                await fs.appendFile('Win.txt', winFileData);
+            }
+
+            parentPort.postMessage({
+                type: 'walletCheckResult',
+                totalChecked: results.length,
+                totalNonZero: winFileData ? 1 : 0
+            });
+        } catch (error) {
+            await logDetailedError(error);
+        }
+    }
+
+    async function getWalletBalance(address, param, maxRetries, retryDelay, networkErrorRetryDelay) {
+        try {
+            const balance = await getWalletData(address, param.key, param.url, maxRetries, retryDelay, networkErrorRetryDelay);
+            return { blockchain: param.name, balance };
+        } catch (e) {
+            await logDetailedError(e);
+            return { blockchain: param.name, balance: null };
+        }
+    }
+
+    async function processResultsAndPrepareFiles(results, address, minBalance, mnemonicPhrase) {
+        let winFileData = '';
+
+        results.forEach(({ blockchain, balance }) => {
+            if (balance === null || balance === '0x0') return;
+            const ethBalance = new BigNumber(balance, 16).dividedBy('1e18');
+            if (ethBalance.isGreaterThan(minBalance)) {
+                const walletDetails = mnemonicPhrase
+                    ? `Address: ${address},\nMnemonic Phrase: ${mnemonicPhrase}\nBalance: ${ethBalance.toFixed(18)} ETH\nBlockchain: ${blockchain.toUpperCase()}\n\n`
+                    : `Address: ${address},\nBalance: ${ethBalance.toFixed(18)} ETH\nBlockchain: ${blockchain.toUpperCase()}\n\n`;
+                winFileData += walletDetails;
             }
         });
-    } catch (error) {
-        console.error('Error checking wallet:', error);
-        return null;
+
+        return winFileData;
     }
 
-    // Send wallet check result to parent process
-    process.send({
-        type: 'walletCheckResult',
-        address: wallet.address,
-        totalChecked: 3,
-        totalNonZero
-    });
-}
+    parentPort.on('message', async (data) => {
+        const { address, apiKeys, blockchains, maxRetries, retryDelay, networkErrorRetryDelay, concurrencyLimit, minBalance } = data;
+        const blockchainParams = Object.keys(apiKeys).map(key => ({
+            key: apiKeys[key], name: key, url: blockchains[key]
+        })).filter(param => param.key);
 
-// Handle message from parent process
-process.on('message', async (data) => {
-    const { ethereum: ethereumApiKeys, arbitrum: arbitrumApiKeys, polygonZKVM: polygonzkVMApiKeys, optimism: optimismApiKeys } = data.apiKeys;
-    const concurrencyLimit = data.concurrencyLimit;
-    const blockchainCount = Object.keys(data.apiKeys).length;
-    const { default: pLimit } = await import('p-limit');
-    const limit = pLimit(concurrencyLimit * blockchainCount);
-
-    async function checkWalletsParallel() {
         while (true) {
-            const tasks = [];
-            let maxKeys = Math.max(ethereumApiKeys.length, arbitrumApiKeys.length, polygonzkVMApiKeys.length, optimismApiKeys.length);
-
+            const maxKeys = Math.max(...blockchainParams.map(param => param.key.length));
             for (let i = 0; i < maxKeys; i++) {
-                if (i < ethereumApiKeys.length && i < arbitrumApiKeys.length && i < polygonzkVMApiKeys.length && i < optimismApiKeys.length) {
-                    tasks.push(limit(() => checkWallet(ethereumApiKeys[i], arbitrumApiKeys[i], polygonzkVMApiKeys[i], optimismApiKeys[i])));
-                }
-
-                if (tasks.length >= concurrencyLimit) {
-                    await Promise.allSettled(tasks);
-                    tasks.length = 0;
-                }
+                const keys = blockchainParams.reduce((acc, param) => {
+                    if (param.key[i]) acc.push({ key: param.key[i], name: param.name, url: param.url });
+                    return acc;
+                }, []);
+                if (keys.length > 0) await checkWallet(address, keys, maxRetries, retryDelay, networkErrorRetryDelay, concurrencyLimit, minBalance);
             }
-
-            if (tasks.length > 0) {
-                await Promise.allSettled(tasks);
-            }
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
-    }
-
-    checkWalletsParallel();
-});
-
+    });
+})();
